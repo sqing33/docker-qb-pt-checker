@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>qb-pt 种子查询</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="{{ url_for('static', filename='icon.svg') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/element-plus/dist/index.css"
+    />
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/element-plus"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+      }
+      #app {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .el-table {
+        flex-grow: 1;
+      }
+      .expand-content {
+        padding: 10px 20px;
+        border-radius: 4px;
+      }
+      .expand-content .el-tag,
+      .expand-content a .el-tag {
+        margin: 4px;
+      }
+      .el-table__row {
+        cursor: pointer;
+      }
+      .el-table__expand-icon {
+        display: none;
+      }
+      .expanded-row > td {
+        background-color: #ecf5ff !important;
+      }
+      .expanded-row .expand-content {
+        background-color: #f5faff !important;
+      }
+      .header-filter-container {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .header-filter-container .el-input,
+      .header-filter-container .el-select {
+        margin-left: 8px;
+      }
+      .el-table .sortable-header .cell {
+        cursor: pointer;
+      }
+      .el-table .caret-wrapper {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    {% raw %}
+    <div id="app">
+      <el-alert
+        v-if="error"
+        :title="error"
+        type="error"
+        show-icon
+        :closable="false"
+        center
+      ></el-alert>
+
+      <el-table
+        v-else
+        :data="filteredData"
+        v-loading="loading"
+        border
+        height="100%"
+        ref="tableRef"
+        row-key="name"
+        :row-class-name="tableRowClassName"
+        @row-click="handleRowClick"
+        @expand-change="handleExpandChange"
+        @header-click="handleHeaderClick"
+        :sort-orders="['descending', 'ascending', null]"
+        :default-sort="defaultSort"
+      >
+        <el-table-column type="expand" width="1">
+          <template #default="props">
+            <div class="expand-content">
+              <template v-for="siteName in all_sites" :key="siteName">
+                <!-- 有注释，生成可点击的链接 -->
+                <a
+                  v-if="hasLink(props.row, siteName)"
+                  :href="getLink(props.row, siteName)"
+                  target="_blank"
+                  style="text-decoration: none"
+                >
+                  <el-tag :type="getTagType(props.row, siteName)" effect="dark">
+                    {{ siteName }}
+                  </el-tag>
+                </a>
+                <!-- 无注释，显示普通标签 -->
+                <el-tag
+                  v-else
+                  :type="getTagType(props.row, siteName)"
+                  effect="dark"
+                >
+                  {{ siteName }}
+                </el-tag>
+              </template>
+            </div>
+          </template>
+        </el-table-column>
+        <!-- 序号列 - 显示行号 -->
+        <el-table-column
+          type="index"
+          label="序号"
+          width="60"
+          align="center"
+        ></el-table-column>
+
+        <!-- 种子名称列 - 显示种子名称，支持排序和搜索 -->
+        <el-table-column
+          prop="name"
+          label="种子名称"
+          min-width="400"
+          sortable="custom"
+          class-name="sortable-header"
+        >
+          <template #header
+            ><div class="header-filter-container">
+              <span>种子名称</span>
+              <span style="margin-left: 20px; color: red">
+                灰色→站点不存在种子，蓝色→不支持跳转站点种子详情，绿色→查看站点种子详情
+              </span>
+              <el-input
+                v-model="nameSearch"
+                placeholder="搜索名称..."
+                clearable
+                @click.stop
+                style="width: 300px"
+              /></div
+          ></template>
+          <template #default="scope"
+            ><span style="white-space: normal"
+              >{{ scope.row.name }}</span
+            ></template
+          >
+        </el-table-column>
+        <!-- 保存路径列 - 显示种子保存路径，支持筛选 -->
+        <el-table-column
+          prop="save_path"
+          label="保存路径"
+          width="300"
+          sortable="custom"
+          class-name="sortable-header"
+        >
+          <template #header
+            ><div class="header-filter-container">
+              <span>保存路径</span
+              ><el-select
+                v-model="active_path_filters"
+                @change="handleFilterChange"
+                multiple
+                collapse-tags
+                collapse-tags-tooltip
+                clearable
+                filterable
+                placeholder="筛选路径"
+                @click.stop
+                style="width: 180px"
+                ><el-option
+                  v-for="path in unique_paths"
+                  :key="path"
+                  :label="path"
+                  :value="path"
+                ></el-option
+              ></el-select></div
+          ></template>
+          <template #default="scope"
+            ><span style="white-space: normal"
+              >{{ scope.row.save_path }}</span
+            ></template
+          >
+        </el-table-column>
+        <!-- 大小列 - 显示格式化后的种子大小，支持排序 -->
+        <el-table-column
+          label="大小 ↓"
+          prop="size_formatted"
+          width="120"
+          align="center"
+          sortable="custom"
+          class-name="sortable-header"
+        ></el-table-column>
+
+        <!-- 进度列 - 显示下载进度条和百分比 -->
+        <el-table-column
+          label="进度 ↓"
+          prop="progress"
+          width="150"
+          align="center"
+          sortable="custom"
+          class-name="sortable-header"
+        >
+          <template #default="scope"
+            ><el-progress
+              :percentage="scope.row.progress"
+              :stroke-width="10"
+              :color="progressColors"
+            ></el-progress
+          ></template>
+        </el-table-column>
+        <!-- 状态列 - 显示种子状态(下载中/做种中等)，支持筛选 -->
+        <el-table-column
+          label="状态"
+          prop="state"
+          width="200"
+          align="center"
+          sortable="custom"
+          class-name="sortable-header"
+        >
+          <template #header
+            ><div class="header-filter-container">
+              <span>状态</span
+              ><el-select
+                v-model="active_state_filters"
+                @change="fetchData"
+                multiple
+                collapse-tags
+                collapse-tags-tooltip
+                clearable
+                placeholder="筛选状态"
+                @click.stop
+                style="width: 100px"
+                ><el-option
+                  v-for="state in unique_states"
+                  :key="state"
+                  :label="state"
+                  :value="state"
+                ></el-option
+              ></el-select></div
+          ></template>
+          <template #default="scope"
+            ><el-tag :type="getStateTagType(scope.row.state)" size="large"
+              >{{ scope.row.state }}</el-tag
+            ></template
+          >
+        </el-table-column>
+      </el-table>
+    </div>
+    {% endraw %}
+
+    <script>
+      const { createApp, ref, onMounted, computed } = Vue;
+      const { ElMessage } = ElementPlus;
+
+      createApp({
+        // Vue应用主逻辑
+        setup() {
+          // 响应式数据定义
+          // 表格引用和加载状态
+          const tableRef = ref(null);
+          const loading = ref(true);
+
+          // 数据相关状态
+          const allData = ref([]); // 所有种子数据
+          const all_sites = ref([]); // 所有站点列表
+          const unique_paths = ref([]); // 唯一路径列表
+          const unique_states = ref([]); // 唯一状态列表
+          const error = ref(null); // 错误信息
+
+          // 筛选相关状态
+          const active_path_filters = ref([]); // 当前路径筛选
+          const active_state_filters = ref([]); // 当前状态筛选
+          const expandedRows = ref([]); // 已展开的行
+          const nameSearch = ref(""); // 名称搜索关键词
+          const isInitialLoad = ref(true); // 是否首次加载
+
+          // 站点链接规则
+          const site_link_rules = ref({});
+
+          // 排序相关状态
+          const currentSort = ref({ prop: "name", order: "ascending" });
+          const defaultSort = computed(() => ({
+            prop: currentSort.value.prop,
+            order: currentSort.value.order,
+          }));
+
+          const progressColors = [
+            { color: "#f56c6c", percentage: 80 },
+            { color: "#e6a23c", percentage: 99 },
+            { color: "#67c23a", percentage: 100 },
+          ];
+
+          const customSortCompare = (a, b) => {
+            const getCharType = (char) => {
+              const charCode = char.toLowerCase().charCodeAt(0);
+              if (charCode >= 97 && charCode <= 122) return 1;
+              if (charCode >= 48 && charCode <= 57) return 2;
+              return 3;
+            };
+            const nameA = a.name.toLowerCase();
+            const nameB = b.name.toLowerCase();
+            const len = Math.min(nameA.length, nameB.length);
+            for (let i = 0; i < len; i++) {
+              const typeA = getCharType(nameA[i]);
+              const typeB = getCharType(nameB[i]);
+              if (typeA !== typeB) return typeA - typeB;
+              if (nameA[i] !== nameB[i])
+                return nameA[i].localeCompare(nameB[i]);
+            }
+            return nameA.length - nameB.length;
+          };
+
+          const fetchData = async () => {
+            loading.value = true;
+            error.value = null;
+            try {
+              const params = new URLSearchParams();
+              active_path_filters.value.forEach((path) =>
+                params.append("path_filter", path)
+              );
+              active_state_filters.value.forEach((state) =>
+                params.append("status_filter", state)
+              );
+              const url = `/api/data?${params.toString()}`;
+              const response = await fetch(url);
+
+              if (!response.ok) {
+                throw new Error(
+                  `网络错误: ${response.status} ${response.statusText}`
+                );
+              }
+
+              const result = await response.json();
+              if (result.error) throw new Error(result.error);
+              allData.value = result.data;
+              allData.value.sort(customSortCompare);
+              all_sites.value = result.all_discovered_sites;
+
+              site_link_rules.value = result.site_link_rules;
+
+              if (isInitialLoad.value) {
+                unique_paths.value = result.unique_paths;
+                unique_states.value = result.unique_states;
+                active_path_filters.value = result.active_path_filters;
+              }
+              if (isInitialLoad.value && active_path_filters.value.length > 0) {
+                isInitialLoad.value = false;
+                await fetchData();
+              } else {
+                isInitialLoad.value = false;
+              }
+            } catch (e) {
+              error.value = e.message;
+              isInitialLoad.value = false;
+            } finally {
+              loading.value = false;
+            }
+          };
+
+          const saveFilters = async () => {
+            try {
+              const response = await fetch("/api/save_filters", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ paths: active_path_filters.value }),
+              });
+              if (!response.ok)
+                throw new Error(`保存筛选器失败: ${response.statusText}`);
+              const result = await response.json();
+              if (result.error) throw new Error(result.error);
+            } catch (e) {
+              console.error("保存筛选器失败:", e);
+              ElMessage({
+                message: `保存筛选器设置时出错: ${e.message}`,
+                type: "error",
+              });
+            }
+          };
+
+          const handleFilterChange = () => {
+            fetchData();
+            saveFilters();
+          };
+
+          const filteredData = computed(() => {
+            if (!nameSearch.value) return allData.value;
+            const searchTerm = nameSearch.value.toLowerCase();
+            return allData.value.filter((item) =>
+              item.name.toLowerCase().includes(searchTerm)
+            );
+          });
+
+          const sortData = (prop, order) => {
+            allData.value.sort((a, b) => {
+              let valA, valB;
+              if (prop === "size_formatted") {
+                valA = a.size;
+                valB = b.size;
+              } else if (prop === "progress") {
+                valA = a.progress;
+                valB = b.progress;
+              } else if (prop === "state" || prop === "save_path") {
+                valA = a[prop];
+                valB = b[prop];
+                return order === "ascending"
+                  ? valA.localeCompare(valB)
+                  : valB.localeCompare(valA);
+              } else {
+                valA = a;
+                valB = b;
+                return order === "ascending"
+                  ? customSortCompare(valA, valB)
+                  : customSortCompare(b, valA);
+              }
+              return order === "ascending" ? valA - valB : valB - valA;
+            });
+          };
+
+          const handleHeaderClick = (column, event) => {
+            if (!column.sortable) return;
+            const prop = column.property;
+            let nextOrder;
+            if (currentSort.value.prop === prop) {
+              if (currentSort.value.order === "descending")
+                nextOrder = "ascending";
+              else if (currentSort.value.order === "ascending")
+                nextOrder = null;
+              else nextOrder = "descending";
+            } else {
+              nextOrder = "descending";
+            }
+            currentSort.value = { prop: prop, order: nextOrder };
+            if (nextOrder) {
+              sortData(prop, nextOrder);
+            } else {
+              allData.value.sort(customSortCompare);
+              currentSort.value = { prop: "name", order: "ascending" };
+            }
+          };
+
+          // 函数1: 根据情况决定标签颜色
+          const getTagType = (row, siteName) => {
+            // 情况1: 种子在该站点不存在
+            if (!(siteName in row.sites)) {
+              return "info"; // 灰色
+            }
+            // 情况2: 存在但没有注释
+            if (!row.sites[siteName]) {
+              return "primary"; // 蓝色
+            }
+            // 情况3 & 4: 存在且有注释
+            return "success"; // 绿色
+          };
+
+          // 函数2: 判断是否应该生成链接
+          const hasLink = (row, siteName) => {
+            // 只有当种子在该站点存在且注释不为空时，才生成链接
+            return siteName in row.sites && !!row.sites[siteName];
+          };
+
+          // 函数3: 生成最终的链接地址
+          const getLink = (row, siteName) => {
+            const comment = row.sites[siteName];
+            const rule = site_link_rules.value[siteName];
+
+            // 情况3: 配置文件中存在规则
+            if (rule && rule.base_url) {
+              return rule.base_url + comment;
+            }
+            // 情况4: 配置文件中没有规则，直接返回注释内容
+            return comment;
+          };
+
+          const handleRowClick = (row) =>
+            tableRef.value.toggleRowExpansion(row);
+          const handleExpandChange = (row, expanded_rows) =>
+            (expandedRows.value = expanded_rows.map((r) => r.name));
+          const tableRowClassName = ({ row }) =>
+            expandedRows.value.includes(row.name) ? "expanded-row" : "";
+          const getStateTagType = (state) => {
+            if (state.includes("下载")) return "primary";
+            if (state.includes("做种")) return "success";
+            if (state.includes("暂停")) return "warning";
+            if (state.includes("错误") || state.includes("丢失"))
+              return "danger";
+            return "info";
+          };
+
+          onMounted(fetchData);
+
+          return {
+            tableRef,
+            loading,
+            filteredData,
+            all_sites,
+            unique_paths,
+            unique_states,
+            error,
+            active_path_filters,
+            active_state_filters,
+            expandedRows,
+            nameSearch,
+            progressColors,
+            fetchData,
+            handleFilterChange,
+            handleRowClick,
+            handleExpandChange,
+            tableRowClassName,
+            getStateTagType,
+            handleHeaderClick,
+            defaultSort,
+            getTagType,
+            hasLink,
+            getLink,
+          };
+        },
+      })
+        .use(ElementPlus)
+        .mount("#app");
+    </script>
+  </body>
+</html>
