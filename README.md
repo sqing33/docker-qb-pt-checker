@@ -20,16 +20,22 @@ DockerHub：https://hub.docker.com/r/sqing33/qb-pt-checker
 | TR_USERNAME |     Transmission 用户名     |
 | TR_PASSWORD |      Transmission 密码      |
 
+**注：** QB_HOST或TR_HOST留空则表示不启用那个下载器
+
 ```bash
 docker run -d \
   --name qb-pt-checker \
   -p 5272:5000 \
   -e QB_HOST=192.168.1.100:8080 \
-  -e QB_USERNAME= \
-  -e QB_PASSWORD= \
-  -v $(pwd):/data \
+  -e QB_USERNAME=admin \
+  -e QB_PASSWORD=adminadmin \
+  -e TR_HOST=192.168.1.100 \
+  -e TR_PORT=9091 \
+  -e TR_USERNAME= \
+  -e TR_PASSWORD= \
+  -v $(pwd)/config:/data \
   --restart always \
-  ghcr.io/sqing33/qb-pt-checker
+  ghcr.io/sqing33/qb-pt-checker    
 ```
 
 ```yaml
@@ -66,17 +72,17 @@ services:
 ```json
 {
     "qbittorrent": {
+        "enabled": false,
         "host": "192.168.1.100:8080",
         "username": "admin",
-        "password": "password",
-        "enabled": false
+        "password": "password"
     },
     "transmission": {
+        "enabled": false,
         "host": "192.168.1.100",
         "port": 9091,
         "username": "admin",
-        "password": "password",
-        "enabled": true
+        "password": "password"
     }
 }
 ```
@@ -88,17 +94,17 @@ services:
 ```json
 {
     "qbittorrent": {
+        "enabled": false,
         "host": "192.168.1.100:8080",
         "password": "",
-        "username": "",
-        "enabled": true
+        "username": ""
     },
     "transmission": {
+        "enabled": false,
         "host": "192.168.1.100",
         "port": 9091,
         "username": "",
-        "password": "",
-        "enabled": true
+        "password": ""
     },
     "site_link_rules": {
         "一站": {
