@@ -7,7 +7,7 @@ from flask import Flask, jsonify, render_template, request
 from qbittorrentapi import Client
 
 app = Flask(__name__)
-DATA_DIR = '.'
+DATA_DIR = '/data'
 CONFIG_FILE = os.path.join(DATA_DIR, 'config.json')
 README_FILE = os.path.join(DATA_DIR, '配置文件说明.txt')  # 将说明文件名也定义为常量
 SITE_TAG_PREFIX = "站点/"
