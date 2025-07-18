@@ -9,7 +9,7 @@ from qbittorrentapi import Client
 from transmission_rpc import Client as TrClient
 
 app = Flask(__name__)
-DATA_DIR = '.'
+DATA_DIR = '/data'
 CONFIG_FILE = os.path.join(DATA_DIR, 'config.json')
 README_FILE = os.path.join(DATA_DIR, '配置文件说明.txt')
 SITE_TAG_PREFIX = "站点/"
