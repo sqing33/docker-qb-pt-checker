@@ -15,63 +15,85 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <style>
+      /* 基础样式重置，确保页面占满整个视窗 */
       html,
       body {
         margin: 0;
         padding: 0;
         height: 100%;
-        overflow: hidden;
+        overflow: hidden; /* 防止出现滚动条 */
       }
+      /* 应用根容器使用flex布局，实现头部警告和下方表格的垂直排列 */
       #app {
         height: 100vh;
         display: flex;
         flex-direction: column;
       }
+      /* 表格区域自适应剩余空间 */
       .el-table {
         flex-grow: 1;
       }
+      /* 展开行的内容区域样式 */
       .expand-content {
         padding: 10px 20px;
         border-radius: 4px;
       }
+      /* 展开行内的站点标签间距 */
       .expand-content .el-tag,
       .expand-content a .el-tag {
         margin: 4px;
       }
+      /* 表格行鼠标指针样式，提示可点击 */
       .el-table__row {
         cursor: pointer;
       }
+      /* 隐藏默认的展开图标，因为整行点击已实现该功能 */
       .el-table__expand-icon {
         display: none;
       }
+      /* 被展开的表格行高亮背景色 */
       .expanded-row > td {
         background-color: #ecf5ff !important;
       }
+      /* 被展开行的内容区域背景色 */
       .expanded-row .expand-content {
         background-color: #f5faff !important;
       }
+      /* 表头筛选器容器样式，实现内容两端对齐 */
       .header-filter-container {
         display: flex;
         align-items: center;
         justify-content: space-between;
       }
+      /* 表头筛选器内的输入框和选择器左边距 */
       .header-filter-container .el-input,
       .header-filter-container .el-select {
         margin-left: 8px;
       }
+      /* 为可排序的表头单元格添加点击指针 */
       .el-table .sortable-header .cell {
         cursor: pointer;
       }
+      /* 隐藏Element Plus表格默认的排序箭头，因为我们通过点击表头文字实现排序切换 */
       .el-table .caret-wrapper {
         display: none;
+      }
+      /* 多选选择器（Select）在多选模式下隐藏输入光标 */
+      .el-select__input {
+        display: none;
+      }
+      /* 防止多选选择器的标签换行 */
+      .el-select__selection {
+        flex-wrap: unset;
       }
     </style>
   </head>
   <body>
     {% raw %}
     <div id="app">
+      <!-- 错误提示栏：当存在错误且不是“无数据”类型的错误时显示 -->
       <el-alert
-        v-if="error"
+        v-if="error && !isNoDataError"
         :title="error"
         type="error"
         show-icon
@@ -79,8 +101,9 @@
         center
       ></el-alert>
 
+      <!-- 主数据表格：在没有严重错误时显示 -->
       <el-table
-        v-else
+        v-if="!error || isNoDataError"
         :data="filteredData"
         v-loading="loading"
         border
@@ -93,12 +116,15 @@
         @header-click="handleHeaderClick"
         :sort-orders="['descending', 'ascending', null]"
         :default-sort="defaultSort"
+        empty-text="无数据"
       >
+        <!-- 展开列：用于显示种子的站点详情 -->
         <el-table-column type="expand" width="1">
           <template #default="props">
             <div class="expand-content">
+              <!-- 遍历所有已发现的站点，并为当前行显示对应的标签 -->
               <template v-for="siteName in all_sites" :key="siteName">
-                <!-- 有注释，生成可点击的链接 -->
+                <!-- 如果站点有详情链接，则使用a标签包裹 -->
                 <a
                   v-if="hasLink(props.row, siteName)"
                   :href="getLink(props.row, siteName)"
@@ -109,7 +135,7 @@
                     {{ siteName }}
                   </el-tag>
                 </a>
-                <!-- 无注释，显示普通标签 -->
+                <!-- 否则只显示标签 -->
                 <el-tag
                   v-else
                   :type="getTagType(props.row, siteName)"
@@ -121,24 +147,18 @@
             </div>
           </template>
         </el-table-column>
-        <!-- 序号列 - 显示行号 -->
+        <!-- 序号列 -->
         <el-table-column
           type="index"
           label="序号"
           width="60"
           align="center"
         ></el-table-column>
-
-        <!-- 种子名称列 - 显示种子名称，支持排序和搜索 -->
-        <el-table-column
-          prop="name"
-          label="种子名称"
-          min-width="400"
-          sortable="custom"
-          class-name="sortable-header"
-        >
-          <template #header
-            ><div class="header-filter-container">
+        <!-- 种子名称列 -->
+        <el-table-column prop="name" label="种子名称" min-width="400">
+          <!-- 自定义表头，包含名称搜索输入框和图例说明 -->
+          <template #header>
+            <div class="header-filter-container">
               <span>种子名称</span>
               <span style="margin-left: 20px; color: red">
                 灰色→站点不存在种子，蓝色→不支持跳转站点种子详情，绿色→查看站点种子详情
@@ -148,27 +168,56 @@
                 placeholder="搜索名称..."
                 clearable
                 @click.stop
-                style="width: 300px"
-              /></div
-          ></template>
-          <template #default="scope"
-            ><span style="white-space: normal"
-              >{{ scope.row.name }}</span
-            ></template
-          >
+                style="width: 200px; margin-left: 10px"
+              />
+            </div>
+          </template>
+          <template #default="scope">
+            <span style="white-space: normal">{{ scope.row.name }}</span>
+          </template>
         </el-table-column>
-        <!-- 保存路径列 - 显示种子保存路径，支持筛选 -->
+        <!-- 下载器列 -->
         <el-table-column
-          prop="save_path"
-          label="保存路径"
-          width="300"
-          sortable="custom"
-          class-name="sortable-header"
+          prop="downloader"
+          label="下载器"
+          width="185"
+          align="center"
         >
-          <template #header
-            ><div class="header-filter-container">
-              <span>保存路径</span
-              ><el-select
+          <!-- 自定义表头，包含下载器筛选下拉框 -->
+          <template #header>
+            <div class="header-filter-container">
+              <el-select
+                v-model="active_downloader_filters"
+                @change="handleDownloaderFilterChange"
+                multiple
+                collapse-tags
+                collapse-tags-tooltip
+                clearable
+                filterable
+                placeholder="下载器"
+                style="width: 150px"
+              >
+                <el-option label="qbittorrent" value="qbittorrent"></el-option>
+                <el-option
+                  label="transmission"
+                  value="transmission"
+                ></el-option>
+              </el-select>
+            </div>
+          </template>
+          <template #default="scope">
+            <el-tag :type="getDownloaderTagType(scope.row.downloader)">
+              {{ downloaderNameMap[scope.row.downloader] || scope.row.downloader
+              }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <!-- 保存路径列 -->
+        <el-table-column prop="save_path" label="保存路径" width="255">
+          <!-- 自定义表头，包含保存路径筛选下拉框 -->
+          <template #header>
+            <div class="header-filter-container">
+              <el-select
                 v-model="active_path_filters"
                 @change="handleFilterChange"
                 multiple
@@ -176,24 +225,23 @@
                 collapse-tags-tooltip
                 clearable
                 filterable
-                placeholder="筛选路径"
-                @click.stop
-                style="width: 180px"
-                ><el-option
+                placeholder="保存路径"
+                style="width: 255px"
+              >
+                <el-option
                   v-for="path in unique_paths"
                   :key="path"
                   :label="path"
                   :value="path"
-                ></el-option
-              ></el-select></div
-          ></template>
-          <template #default="scope"
-            ><span style="white-space: normal"
-              >{{ scope.row.save_path }}</span
-            ></template
-          >
+                ></el-option>
+              </el-select>
+            </div>
+          </template>
+          <template #default="scope">
+            <span style="white-space: normal">{{ scope.row.save_path }}</span>
+          </template>
         </el-table-column>
-        <!-- 大小列 - 显示格式化后的种子大小，支持排序 -->
+        <!-- 大小列 -->
         <el-table-column
           label="大小 ↓"
           prop="size_formatted"
@@ -202,8 +250,7 @@
           sortable="custom"
           class-name="sortable-header"
         ></el-table-column>
-
-        <!-- 进度列 - 显示下载进度条和百分比 -->
+        <!-- 进度列 -->
         <el-table-column
           label="进度 ↓"
           prop="progress"
@@ -220,41 +267,36 @@
             ></el-progress
           ></template>
         </el-table-column>
-        <!-- 状态列 - 显示种子状态(下载中/做种中等)，支持筛选 -->
-        <el-table-column
-          label="状态"
-          prop="state"
-          width="200"
-          align="center"
-          sortable="custom"
-          class-name="sortable-header"
-        >
-          <template #header
-            ><div class="header-filter-container">
-              <span>状态</span
-              ><el-select
+        <!-- 状态列 -->
+        <el-table-column label="状态" prop="state" width="175" align="center">
+          <!-- 自定义表头，包含状态筛选下拉框 -->
+          <template #header>
+            <div class="header-filter-container">
+              <el-select
                 v-model="active_state_filters"
                 @change="fetchData"
                 multiple
                 collapse-tags
                 collapse-tags-tooltip
                 clearable
-                placeholder="筛选状态"
-                @click.stop
-                style="width: 100px"
-                ><el-option
+                placeholder="状态"
+                filterable
+                style="width: 125px"
+              >
+                <el-option
                   v-for="state in unique_states"
                   :key="state"
                   :label="state"
                   :value="state"
-                ></el-option
-              ></el-select></div
-          ></template>
-          <template #default="scope"
-            ><el-tag :type="getStateTagType(scope.row.state)" size="large"
+                ></el-option>
+              </el-select>
+            </div>
+          </template>
+          <template #default="scope">
+            <el-tag :type="getStateTagType(scope.row.state)" size="large"
               >{{ scope.row.state }}</el-tag
-            ></template
-          >
+            >
+          </template>
         </el-table-column>
       </el-table>
     </div>
@@ -265,50 +307,98 @@
       const { ElMessage } = ElementPlus;
 
       createApp({
-        // Vue应用主逻辑
+        /**
+         * Vue 3 Composition API 的入口点
+         */
         setup() {
-          // 响应式数据定义
-          // 表格引用和加载状态
-          const tableRef = ref(null);
-          const loading = ref(true);
+          // --- 响应式状态定义 ---
 
-          // 数据相关状态
-          const allData = ref([]); // 所有种子数据
-          const all_sites = ref([]); // 所有站点列表
-          const unique_paths = ref([]); // 唯一路径列表
-          const unique_states = ref([]); // 唯一状态列表
-          const error = ref(null); // 错误信息
+          const tableRef = ref(null); // 对 Element Plus 表格组件的引用
+          const loading = ref(true); // 控制表格加载状态
+          const allData = ref([]); // 存储从后端获取的原始种子数据
+          const all_sites = ref([]); // 所有已发现的站点名称列表
+          const unique_paths = ref([]); // 唯一的保存路径列表，用于筛选
+          const unique_states = ref([]); // 唯一的种子状态列表，用于筛选
+          const error = ref(null); // 存储API请求的错误信息
+          const active_path_filters = ref([]); // 当前激活的路径筛选器
+          const active_state_filters = ref([]); // 当前激活的状态筛选器
+          const active_downloader_filters = ref([]); // 当前激活的下载器筛选器
+          const expandedRows = ref([]); // 记录当前展开的行的key
+          const nameSearch = ref(""); // 种子名称搜索关键字
+          const isInitialLoad = ref(true); // 标记是否为首次加载
+          const site_link_rules = ref({}); // 站点详情页链接生成规则
+          const currentSort = ref({ prop: null, order: null }); // 当前表格的排序状态
 
-          // 筛选相关状态
-          const active_path_filters = ref([]); // 当前路径筛选
-          const active_state_filters = ref([]); // 当前状态筛选
-          const expandedRows = ref([]); // 已展开的行
-          const nameSearch = ref(""); // 名称搜索关键词
-          const isInitialLoad = ref(true); // 是否首次加载
-
-          // 站点链接规则
-          const site_link_rules = ref({});
-
-          // 排序相关状态
-          const currentSort = ref({ prop: "name", order: "ascending" });
+          /**
+           * 为 Element Plus 表格提供默认排序状态
+           */
           const defaultSort = computed(() => ({
             prop: currentSort.value.prop,
             order: currentSort.value.order,
           }));
 
+          /**
+           * 进度条颜色配置
+           */
           const progressColors = [
             { color: "#f56c6c", percentage: 80 },
             { color: "#e6a23c", percentage: 99 },
             { color: "#67c23a", percentage: 100 },
           ];
 
+          /**
+           * 下载器ID到显示名称的映射
+           */
+          const downloaderNameMap = {
+            qbittorrent: "qbittorrent",
+            transmission: "transmission",
+          };
+
+          /**
+           * 根据名称搜索关键字过滤表格数据
+           */
+          const filteredData = computed(() => {
+            let data = allData.value;
+            if (!nameSearch.value) return data;
+            const searchTerm = nameSearch.value.toLowerCase();
+            return data.filter((item) =>
+              item.name.toLowerCase().includes(searchTerm)
+            );
+          });
+
+          /**
+           * 判断错误信息是否为“无数据”类型，以便在UI上做特殊处理
+           */
+          const isNoDataError = computed(() => {
+            return (
+              error.value &&
+              (error.value.includes("未找到任何带 '站点/...' 标签的种子") ||
+                error.value.includes("在选定的筛选条件下"))
+            );
+          });
+
+          // --- 方法与函数定义 ---
+
+          /**
+           * 获取单个字符的类型（字母、数字、其他），用于自定义排序
+           * @param {string} char - 单个字符
+           * @returns {number} 1 for letter, 2 for number, 3 for other
+           */
+          const getCharType = (char) => {
+            const charCode = char.toLowerCase().charCodeAt(0);
+            if (charCode >= 97 && charCode <= 122) return 1; // 字母
+            if (charCode >= 48 && charCode <= 57) return 2; // 数字
+            return 3; // 其他
+          };
+
+          /**
+           * 自定义种子名称排序比较函数。
+           * 排序规则：优先按字符类型（字母 > 数字 > 其他）排序，同类型则按字典序。
+           * @param {object} a - 比较项A
+           * @param {object} b - 比较项B
+           * @returns {number} - 排序结果
+           */
           const customSortCompare = (a, b) => {
-            const getCharType = (char) => {
-              const charCode = char.toLowerCase().charCodeAt(0);
-              if (charCode >= 97 && charCode <= 122) return 1;
-              if (charCode >= 48 && charCode <= 57) return 2;
-              return 3;
-            };
             const nameA = a.name.toLowerCase();
             const nameB = b.name.toLowerCase();
             const len = Math.min(nameA.length, nameB.length);
@@ -322,9 +412,15 @@
             return nameA.length - nameB.length;
           };
 
+          /**
+           * 从后端API获取种子数据
+           * 会根据当前激活的筛选器构建请求参数
+           * 在首次加载时，会加载并应用保存在后端的筛选设置
+           */
           const fetchData = async () => {
             loading.value = true;
             error.value = null;
+            let shouldFetchAgain = false; // 标记是否需要因应用加载的筛选器而重新获取数据
             try {
               const params = new URLSearchParams();
               active_path_filters.value.forEach((path) =>
@@ -333,48 +429,66 @@
               active_state_filters.value.forEach((state) =>
                 params.append("status_filter", state)
               );
+              active_downloader_filters.value.forEach((downloader) => {
+                params.append("downloader_filter", downloader);
+              });
+
               const url = `/api/data?${params.toString()}`;
               const response = await fetch(url);
-
               if (!response.ok) {
                 throw new Error(
                   `网络错误: ${response.status} ${response.statusText}`
                 );
               }
-
               const result = await response.json();
               if (result.error) throw new Error(result.error);
               allData.value = result.data;
-              allData.value.sort(customSortCompare);
               all_sites.value = result.all_discovered_sites;
-
               site_link_rules.value = result.site_link_rules;
 
+              // 首次加载时，处理从后端返回的已保存的筛选器设置
               if (isInitialLoad.value) {
                 unique_paths.value = result.unique_paths;
                 unique_states.value = result.unique_states;
-                active_path_filters.value = result.active_path_filters;
-              }
-              if (isInitialLoad.value && active_path_filters.value.length > 0) {
+
+                // 如果存在已保存的路径筛选器，则应用它们
+                if (result.active_path_filters.length > 0) {
+                  active_path_filters.value = result.active_path_filters;
+                  shouldFetchAgain = true;
+                }
+                // 如果存在已保存的下载器筛选器，则应用它们
+                if (result.active_downloader_filters.length > 0) {
+                  active_downloader_filters.value =
+                    result.active_downloader_filters;
+                  shouldFetchAgain = true;
+                }
+
                 isInitialLoad.value = false;
-                await fetchData();
-              } else {
-                isInitialLoad.value = false;
+                // 如果应用了任何已保存的筛选器，则需要重新获取一次数据以使筛选生效
+                if (shouldFetchAgain) {
+                  await fetchData();
+                }
               }
             } catch (e) {
               error.value = e.message;
-              isInitialLoad.value = false;
             } finally {
               loading.value = false;
+              isInitialLoad.value = false; // 确保在首次加载或失败后都重置标志
             }
           };
 
+          /**
+           * 将当前的筛选器设置保存到后端
+           */
           const saveFilters = async () => {
             try {
               const response = await fetch("/api/save_filters", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ paths: active_path_filters.value }),
+                body: JSON.stringify({
+                  paths: active_path_filters.value,
+                  downloaders: active_downloader_filters.value,
+                }),
               });
               if (!response.ok)
                 throw new Error(`保存筛选器失败: ${response.statusText}`);
@@ -389,45 +503,49 @@
             }
           };
 
+          /**
+           * 处理路径筛选器变化的事件
+           * 触发数据重新获取和筛选器保存
+           */
           const handleFilterChange = () => {
             fetchData();
             saveFilters();
           };
 
-          const filteredData = computed(() => {
-            if (!nameSearch.value) return allData.value;
-            const searchTerm = nameSearch.value.toLowerCase();
-            return allData.value.filter((item) =>
-              item.name.toLowerCase().includes(searchTerm)
-            );
-          });
+          /**
+           * 处理下载器筛选器变化的事件
+           * 触发数据重新获取和筛选器保存
+           */
+          const handleDownloaderFilterChange = () => {
+            fetchData();
+            saveFilters();
+          };
 
+          /**
+           * 对表格数据进行排序
+           * @param {string} prop - 排序的属性名 ('size_formatted', 'progress')
+           * @param {string} order - 排序顺序 ('ascending', 'descending')
+           */
           const sortData = (prop, order) => {
             allData.value.sort((a, b) => {
               let valA, valB;
               if (prop === "size_formatted") {
-                valA = a.size;
+                valA = a.size; // 按原始大小排序
                 valB = b.size;
               } else if (prop === "progress") {
                 valA = a.progress;
-                valB = b.progress;
-              } else if (prop === "state" || prop === "save_path") {
-                valA = a[prop];
-                valB = b[prop];
-                return order === "ascending"
-                  ? valA.localeCompare(valB)
-                  : valB.localeCompare(valA);
               } else {
-                valA = a;
-                valB = b;
-                return order === "ascending"
-                  ? customSortCompare(valA, valB)
-                  : customSortCompare(b, valA);
+                return 0;
               }
               return order === "ascending" ? valA - valB : valB - valA;
             });
           };
 
+          /**
+           * 处理表格头点击事件，用于触发自定义排序
+           * 实现 降序 -> 升序 -> 默认排序 的循环切换
+           * @param {object} column - 被点击的列对象
+           */
           const handleHeaderClick = (column, event) => {
             if (!column.sortable) return;
             const prop = column.property;
@@ -436,59 +554,75 @@
               if (currentSort.value.order === "descending")
                 nextOrder = "ascending";
               else if (currentSort.value.order === "ascending")
-                nextOrder = null;
+                nextOrder = null; // 取消排序
               else nextOrder = "descending";
             } else {
-              nextOrder = "descending";
+              nextOrder = "descending"; // 默认首次点击为降序
             }
             currentSort.value = { prop: prop, order: nextOrder };
+
             if (nextOrder) {
               sortData(prop, nextOrder);
             } else {
+              // 恢复到默认的名称排序
               allData.value.sort(customSortCompare);
-              currentSort.value = { prop: "name", order: "ascending" };
+              currentSort.value = { prop: null, order: null };
             }
           };
 
-          // 函数1: 根据情况决定标签颜色
+          /**
+           * 获取展开行中站点标签的类型（颜色）
+           * @param {object} row - 当前行数据
+           * @param {string} siteName - 站点名称
+           * @returns {string} Element Plus 标签类型 ('info', 'primary', 'success')
+           */
           const getTagType = (row, siteName) => {
-            // 情况1: 种子在该站点不存在
-            if (!(siteName in row.sites)) {
-              return "info"; // 灰色
-            }
-            // 情况2: 存在但没有注释
-            if (!row.sites[siteName]) {
-              return "primary"; // 蓝色
-            }
-            // 情况3 & 4: 存在且有注释
-            return "success"; // 绿色
+            if (!(siteName in row.sites)) return "info"; // 灰色: 种子不存在于该站点
+            if (!row.sites[siteName]) return "primary"; // 蓝色: 存在但无详情链接
+            return "success"; // 绿色: 存在且有详情链接
           };
 
-          // 函数2: 判断是否应该生成链接
+          /**
+           * 检查种子在特定站点是否有可用的详情链接
+           * @param {object} row - 当前行数据
+           * @param {string} siteName - 站点名称
+           * @returns {boolean} - 是否有链接
+           */
           const hasLink = (row, siteName) => {
-            // 只有当种子在该站点存在且注释不为空时，才生成链接
             return siteName in row.sites && !!row.sites[siteName];
           };
 
-          // 函数3: 生成最终的链接地址
+          /**
+           * 构建站点的详情页链接
+           * @param {object} row - 当前行数据
+           * @param {string} siteName - 站点名称
+           * @returns {string} - 完整的URL
+           */
           const getLink = (row, siteName) => {
             const comment = row.sites[siteName];
             const rule = site_link_rules.value[siteName];
-
-            // 情况3: 配置文件中存在规则
             if (rule && rule.base_url) {
               return rule.base_url + comment;
             }
-            // 情况4: 配置文件中没有规则，直接返回注释内容
-            return comment;
+            return comment; // 若无规则，直接返回comment内容
           };
 
-          const handleRowClick = (row) =>
-            tableRef.value.toggleRowExpansion(row);
-          const handleExpandChange = (row, expanded_rows) =>
-            (expandedRows.value = expanded_rows.map((r) => r.name));
-          const tableRowClassName = ({ row }) =>
-            expandedRows.value.includes(row.name) ? "expanded-row" : "";
+          /**
+           * 获取下载器标签的类型（颜色）
+           * @param {string} downloader - 下载器名称
+           * @returns {string} Element Plus 标签类型
+           */
+          const getDownloaderTagType = (downloader) => {
+            if (downloader === "qbittorrent") return "primary"; // qb显示为蓝色
+            if (downloader === "transmission") return "success"; // tr显示为绿色
+            return "info"; // 多个下载器或其他情况显示为灰色
+          };
+
+          /**
+           * 获取种子状态标签的类型（颜色）
+           * @param {string} state - 种子状态描述
+           * @returns {string} Element Plus 标签类型
+           */
           const getStateTagType = (state) => {
             if (state.includes("下载")) return "primary";
             if (state.includes("做种")) return "success";
@@ -498,8 +632,37 @@
             return "info";
           };
 
+          /**
+           * 处理行点击事件，触发展开/收起行
+           * @param {object} row - 被点击的行数据
+           */
+          const handleRowClick = (row) =>
+            tableRef.value.toggleRowExpansion(row);
+
+          /**
+           * 处理行展开状态变化事件，更新当前展开的行列表
+           * @param {object} row - 状态发生变化的行
+           * @param {Array} expanded_rows - 当前所有展开的行
+           */
+          const handleExpandChange = (row, expanded_rows) =>
+            (expandedRows.value = expanded_rows.map((r) => r.name));
+
+          /**
+           * 根据行是否被展开，返回对应的CSS类名
+           * @param {object} {row} - 行数据
+           * @returns {string} - CSS类名
+           */
+          const tableRowClassName = ({ row }) =>
+            expandedRows.value.includes(row.name) ? "expanded-row" : "";
+
+          // --- 生命周期钩子 ---
+
+          /**
+           * 组件挂载后执行，用于初始化数据获取
+           */
           onMounted(fetchData);
 
+          // --- 返回模板中需要用到的所有变量和方法 ---
           return {
             tableRef,
             loading,
@@ -510,17 +673,22 @@
             error,
             active_path_filters,
             active_state_filters,
+            active_downloader_filters,
             expandedRows,
             nameSearch,
             progressColors,
+            downloaderNameMap,
+            defaultSort,
+            isNoDataError,
             fetchData,
             handleFilterChange,
+            handleDownloaderFilterChange,
             handleRowClick,
             handleExpandChange,
             tableRowClassName,
             getStateTagType,
+            getDownloaderTagType,
             handleHeaderClick,
-            defaultSort,
             getTagType,
             hasLink,
             getLink,

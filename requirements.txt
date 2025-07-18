@@ -2,3 +2,4 @@
 Flask
 qbittorrent-api
 gunicorn
+transmission-rpc
