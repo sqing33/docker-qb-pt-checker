@@ -1,4 +1,6 @@
-# qb-pt-checker 种子站点查询
+
+# <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/8edcccf8-a4ca-4fcb-8224-8d25f15642eb" /> qb-pt-checker 种子站点查询
+
 
 ## 一、项目概述
 
