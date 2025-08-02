@@ -168,7 +168,6 @@ def custom_sort_compare(item_a, item_b):
     return len(name_a) - len(name_b)
 
 
-# --- (get_torrent_data and get_tr_torrent_data remain the same) ---
 def get_torrent_data(config, path_filters=None, status_filters=None):
     """
     从qBittorrent获取种子数据
@@ -183,8 +182,8 @@ def get_torrent_data(config, path_filters=None, status_filters=None):
     alias_mapping = config.get('site_alias_mapping', {})
     if not qb_config.get('enabled', True):
         return [], None  # 禁用时不返回错误信息
-    if not all(qb_config.get(k) for k in ['host', 'username', 'password']):
-        return [], "qBittorrent 配置不完整，已跳过。"
+    if not qb_config.get('host'):
+        return [], "qBittorrent Host 未配置，已跳过。"
     try:
         # 过滤掉enabled参数
         client_config = {k: v for k, v in qb_config.items() if k != 'enabled'}
@@ -245,8 +244,8 @@ def get_tr_torrent_data(config, path_filters=None, status_filters=None):
     alias_mapping = config.get('site_alias_mapping', {})
     if not tr_config.get('enabled', True):
         return [], None  # 禁用时不返回错误信息
-    if not all(tr_config.get(k) for k in ['host', 'username', 'password']):
-        return [], "Transmission 配置不完整，已跳过。"
+    if not tr_config.get('host'):
+        return [], "Transmission Host 未配置，已跳过。"
     try:
         # 过滤掉enabled参数
         client_config = {k: v for k, v in tr_config.items() if k != 'enabled'}
@@ -303,10 +302,8 @@ def get_all_torrents_metadata(config):
     all_unique_paths, all_unique_states, all_sites = set(), set(), set()
     alias_mapping = config.get('site_alias_mapping', {})
     qb_config = config.get('qbittorrent', {})
-    if qb_config.get('enabled', True) and all(
-            qb_config.get(k) for k in ['host', 'username', 'password']):
+    if qb_config.get('enabled', True) and qb_config.get('host'):
         try:
-            # 过滤掉enabled参数
             client_config = {
                 k: v
                 for k, v in qb_config.items() if k != 'enabled'
@@ -326,10 +323,8 @@ def get_all_torrents_metadata(config):
         except Exception:
             pass
     tr_config = config.get('transmission', {})
-    if tr_config.get('enabled', True) and all(
-            tr_config.get(k) for k in ['host', 'username', 'password']):
+    if tr_config.get('enabled', True) and tr_config.get('host'):
         try:
-            # 过滤掉enabled参数
             client_config = {
                 k: v
                 for k, v in tr_config.items() if k != 'enabled'
@@ -353,11 +348,6 @@ def get_all_torrents_metadata(config):
 # --- Flask 路由 ---
 @app.route('/')
 def index_page():
-    """
-    主页面路由
-    返回:
-        渲染的index.html模板
-    """
     return render_template('index.html')
 
 
@@ -377,22 +367,22 @@ def get_data_api():
     status_filters = request.args.getlist('status_filter')
     downloader_filters = request.args.getlist('downloader_filter')
 
-    if not downloader_filters:
-        downloader_filters = []
-        if config.get('qbittorrent') and all(
-                config['qbittorrent'].get(k)
-                for k in ['host', 'username', 'password']):
-            downloader_filters.append('qbittorrent')
-        if config.get('transmission') and all(
-                config['transmission'].get(k)
-                for k in ['host', 'username', 'password']):
-            downloader_filters.append('transmission')
-
     merged_torrents, error_msgs = {}, []
     downloader_funcs = []
-    if 'qbittorrent' in downloader_filters:
+
+    qb_enabled = config.get('qbittorrent', {}).get('enabled', True)
+    tr_enabled = config.get('transmission', {}).get('enabled', True)
+
+    # 如果没有指定下载器筛选，则默认使用所有已启用的下载器
+    if not downloader_filters:
+        if qb_enabled:
+            downloader_filters.append('qbittorrent')
+        if tr_enabled:
+            downloader_filters.append('transmission')
+
+    if 'qbittorrent' in downloader_filters and qb_enabled:
         downloader_funcs.append(get_torrent_data)
-    if 'transmission' in downloader_filters:
+    if 'transmission' in downloader_filters and tr_enabled:
         downloader_funcs.append(get_tr_torrent_data)
 
     for func in downloader_funcs:
@@ -416,12 +406,9 @@ def get_data_api():
     unique_paths, unique_states, all_discovered_sites = get_all_torrents_metadata(
         config)
     final_error = '\n'.join(error_msgs) if error_msgs else None
-    if not all_data and not final_error and (path_filters or status_filters):
-        final_error = "在选定的筛选条件下，未找到任何种子。"
 
     sorted_data = sorted(all_data, key=cmp_to_key(custom_sort_compare))
 
-    # 返回数据包含保存的筛选设置
     ui_settings = config.get('ui_settings', {})
     return jsonify({
         'data':
@@ -437,7 +424,7 @@ def get_data_api():
         'active_path_filters':
         ui_settings.get('active_path_filters', []),
         'active_downloader_filters':
-        ui_settings.get('active_downloader_filters', []),  # 新增
+        ui_settings.get('active_downloader_filters', []),
         'error':
         final_error
     })
@@ -447,8 +434,6 @@ def get_data_api():
 def save_filters_api():
     """
     保存筛选设置API
-    返回:
-        操作结果消息或错误信息
     """
     data = request.get_json()
     if data is None:
@@ -457,18 +442,84 @@ def save_filters_api():
         config = load_config()
         if 'ui_settings' not in config:
             config['ui_settings'] = {}
-
-        # 保存路径和下载器的筛选设置
         if 'paths' in data:
             config['ui_settings']['active_path_filters'] = data['paths']
         if 'downloaders' in data:
             config['ui_settings']['active_downloader_filters'] = data[
                 'downloaders']
-
         save_config(config)
         return jsonify({"message": "筛选器设置已保存"})
     except (ValueError, FileNotFoundError) as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/downloader_info')
+def get_downloader_info_api():
+    """
+    获取下载器客户端的实时信息API
+    """
+    config = load_config()
+    info = {
+        'qbittorrent': {
+            'enabled': False,
+            'status': '未配置',
+            'details': {}
+        },
+        'transmission': {
+            'enabled': False,
+            'status': '未配置',
+            'details': {}
+        }
+    }
+
+    # 获取 qBittorrent 信息
+    qb_config = config.get('qbittorrent', {})
+    info['qbittorrent']['enabled'] = qb_config.get('enabled', True)
+    if info['qbittorrent']['enabled']:
+        try:
+            client_config = {
+                k: v
+                for k, v in qb_config.items() if k != 'enabled'
+            }
+            qbt_client = Client(**client_config)
+            qbt_client.auth_log_in()
+            app_info = qbt_client.app
+            transfer_info = qbt_client.transfer_info
+            info['qbittorrent']['status'] = '已连接'
+            info['qbittorrent']['details'] = {
+                '版本': app_info.version,
+                'Web API 版本': app_info.api_version,
+                '总下载速度': f"{format_bytes(transfer_info.dl_info_speed)}/s",
+                '总上传速度': f"{format_bytes(transfer_info.up_info_speed)}/s",
+                '磁盘剩余空间': format_bytes(app_info.free_space_on_disk),
+            }
+        except Exception as e:
+            info['qbittorrent']['status'] = '连接失败'
+            info['qbittorrent']['details'] = {'错误信息': str(e)}
+
+    # 获取 Transmission 信息
+    tr_config = config.get('transmission', {})
+    info['transmission']['enabled'] = tr_config.get('enabled', True)
+    if info['transmission']['enabled']:
+        try:
+            client_config = {
+                k: v
+                for k, v in tr_config.items() if k != 'enabled'
+            }
+            tr_client = TrClient(**client_config)
+            stats = tr_client.session_stats()
+            info['transmission']['status'] = '已连接'
+            info['transmission']['details'] = {
+                '版本': tr_client.server_version,
+                'RPC 版本': str(tr_client.rpc_version),
+                '总下载速度': f"{format_bytes(stats.download_speed)}/s",
+                '总上传速度': f"{format_bytes(stats.upload_speed)}/s",
+            }
+        except Exception as e:
+            info['transmission']['status'] = '连接失败'
+            info['transmission']['details'] = {'错误信息': str(e)}
+
+    return jsonify(info)
 
 
 if __name__ == '__main__':
